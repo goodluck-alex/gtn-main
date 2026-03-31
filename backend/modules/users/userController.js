@@ -13,6 +13,7 @@ import { changePasswordBodySchema, deleteAccountBodySchema } from "./userAccount
 import { changeUserPassword, deleteUserAccount } from "./userAccountService.js";
 import * as userBlockService from "./userBlockService.js";
 import { assert2faForSensitiveAction, loadUserForSensitive2fa } from "../auth/sensitiveAction2fa.js";
+import { getUserPhoneIdentity } from "./userPhoneIdentity.js";
 import {
   listActiveSessionsForUser,
   revokeAllUserSessions,
@@ -118,7 +119,8 @@ async function buildMePayload(dbUser) {
 export async function getMe(req, res) {
   try {
     const user = req.user;
-    const json = await buildMePayload(user);
+    const fallbackPhone = await getUserPhoneIdentity(req);
+    const json = await buildMePayload({ ...user, phone: user.phone || fallbackPhone });
     res.json(json);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -162,7 +164,8 @@ export async function patchMe(req, res) {
       data,
     });
 
-    const json = await buildMePayload(fresh);
+    const fallbackPhone = await getUserPhoneIdentity(req);
+    const json = await buildMePayload({ ...fresh, phone: fresh.phone || fallbackPhone });
     res.json(json);
   } catch (err) {
     res.status(400).json({ error: err.message || "patch_failed" });

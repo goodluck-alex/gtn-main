@@ -5,6 +5,7 @@ import * as callBilling from "./callBillingService.js";
 import { normalizePhoneE164 } from "../auth/authService.js";
 import { isUnlimitedActive } from "../plans/plansService.js";
 import { assertCanPlaceVoiceCall } from "./callPolicy.js";
+import { getUserPhoneIdentity } from "../users/userPhoneIdentity.js";
 
 export async function canStartCall(req, res) {
   try {
@@ -31,7 +32,7 @@ export async function startCall(req, res) {
 
     await referralService.ensureDailyFreeMinutes(req.user.id);
 
-    const callerPhone = req.user.phone || `+256${req.user.subscriberId}`;
+    const callerPhone = (await getUserPhoneIdentity(req)) || (req.user.phone || `+256${req.user.subscriberId}`);
     const callerUserId = req.user.id;
     let receiver;
     try {
@@ -72,7 +73,7 @@ export async function startCall(req, res) {
 
 export async function endCall(req, res) {
   try {
-    const userPhone = req.user.phone || `+256${req.user.subscriberId}`;
+    const userPhone = (await getUserPhoneIdentity(req)) || (req.user.phone || `+256${req.user.subscriberId}`);
     const call = await callService.endCallForParticipant(req.body?.callId, req.body?.duration, userPhone);
     res.json(call);
   } catch (err) {
@@ -89,7 +90,7 @@ export async function endCall(req, res) {
 
 export async function getCalls(req, res) {
   try {
-    const userPhone = req.user.phone || `+256${req.user.subscriberId}`;
+    const userPhone = (await getUserPhoneIdentity(req)) || (req.user.phone || `+256${req.user.subscriberId}`);
     const calls = await callService.getUserCalls(userPhone);
     res.json(calls);
   } catch (err) {
