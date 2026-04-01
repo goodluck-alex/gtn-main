@@ -14,6 +14,8 @@ import {
   getMyBlocks,
   postMyBlock,
   deleteMyBlock,
+  postMyPushToken,
+  deleteMyPushToken,
 } from "./userController.js";
 import { post2faSetup, post2faEnable, post2faDisable } from "./userTwoFactorController.js";
 import { authenticate } from "../../middleware/authMiddleware.js";
@@ -34,6 +36,8 @@ router.post("/me/2fa/disable", authenticate, post2faDisable);
 router.post("/me/password", authenticate, changePassword);
 router.post("/me/delete", authenticate, deleteAccount);
 router.post("/me/logout-all-devices", authenticate, logoutAllDevices);
+router.post("/me/push-token", authenticate, postMyPushToken);
+router.delete("/me/push-token", authenticate, deleteMyPushToken);
 router.get("/contacts/search", authenticate, searchContacts);
 router.post("/contacts/match", authenticate, matchContacts);
 router.get("/:id", authenticate, getUser);

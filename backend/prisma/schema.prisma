@@ -68,6 +68,23 @@ model User {
   blocksInitiated       UserBlock[]            @relation("UserBlocksInitiated")
   blocksReceived        UserBlock[]            @relation("UserBlocksReceived")
   sessions              UserSession[]
+  pushDevices           PushDevice[]
+}
+
+/**
+ * FCM/APNs device tokens for incoming-call push when the app/socket is offline.
+ */
+model PushDevice {
+  id        String   @id @default(cuid())
+  userId    Int
+  token     String   @unique
+  platform  String   @default("android")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 /**

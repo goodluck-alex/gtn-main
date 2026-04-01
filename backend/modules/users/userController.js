@@ -320,6 +320,48 @@ export async function postMyBlock(req, res) {
   }
 }
 
+/** POST /users/me/push-token — body: { token: string, platform?: string } (FCM token from native app) */
+export async function postMyPushToken(req, res) {
+  try {
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (!token || token.length < 20) {
+      return res.status(400).json({ message: "token required" });
+    }
+    const platform = String(req.body?.platform || "android").toLowerCase().slice(0, 16);
+    await prisma.pushDevice.upsert({
+      where: { token },
+      create: {
+        userId: req.user.id,
+        token,
+        platform,
+      },
+      update: {
+        userId: req.user.id,
+        platform,
+      },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ message: err.message || "push_token_failed" });
+  }
+}
+
+/** DELETE /users/me/push-token — body: { token: string } */
+export async function deleteMyPushToken(req, res) {
+  try {
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (!token) {
+      return res.status(400).json({ message: "token required" });
+    }
+    await prisma.pushDevice.deleteMany({
+      where: { userId: req.user.id, token },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ message: err.message || "push_token_delete_failed" });
+  }
+}
+
 /** DELETE /users/me/blocks/:blockedId */
 export async function deleteMyBlock(req, res) {
   try {

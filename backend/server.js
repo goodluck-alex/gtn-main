@@ -25,6 +25,10 @@ import { setSocketIo } from "./socket/ioInstance.js";
 import { attachChatSocket } from "./socket/chatSocket.js";
 import * as callBilling from "./modules/calls/callBillingService.js";
 import { normalizePhoneE164 } from "./modules/auth/authService.js";
+import {
+  resolveReceiverUserIdForPush,
+  sendIncomingCallPushIfOffer,
+} from "./modules/push/incomingCallPush.js";
 
 dotenv.config();
 const app = express();
@@ -133,17 +137,30 @@ io.on("connection", async (socket) => {
 
   // Call signaling (WebRTC offer/answer/ICE via simple-peer)
   // callId: DB row from POST /api/calls/start (forwarded so callee can POST /calls/end)
-  socket.on("call_user", ({ fromUserId, toUserId, toUserDbId, signal, callId }) => {
+  socket.on("call_user", async ({ fromUserId, toUserId, toUserDbId, signal, callId }) => {
     // Prefer routing by authenticated db id room when available (avoids phone formatting mismatches).
     const toDbId = Number(toUserDbId);
     if (Number.isFinite(toDbId) && toDbId > 0) {
-      io.to(`user:${toDbId}`).emit("incoming_call", {
-        fromUserId,
-        fromUserDbId: socket.userId ?? null,
-        signal,
-        callId,
-      });
-      return;
+      try {
+        const room = `user:${toDbId}`;
+        const sockets = await io.in(room).fetchSockets();
+        if (Array.isArray(sockets) && sockets.length > 0) {
+          io.to(room).emit("incoming_call", {
+            fromUserId,
+            fromUserDbId: socket.userId ?? null,
+            signal,
+            callId,
+          });
+          socket.emit("call_routed", { ok: true, route: "user_room", toUserDbId: toDbId });
+          return;
+        }
+        // Fall through to phone-map routing if the user room has no sockets.
+        socket.emit("call_routed", { ok: false, route: "user_room_empty", toUserDbId: toDbId });
+        socket.emit("call_failed", { reason: "offline", toUserId: `user:${toDbId}` });
+      } catch (e) {
+        socket.emit("call_routed", { ok: false, route: "user_room_error", toUserDbId: toDbId });
+        socket.emit("call_failed", { reason: "offline", toUserId: `user:${toDbId}` });
+      }
     }
     let toKey = toUserId;
     try {
@@ -153,7 +170,17 @@ io.on("connection", async (socket) => {
     }
     const receiverSocket = onlineUsers.get(toKey);
     if (!receiverSocket) {
+      const pushUserId = await resolveReceiverUserIdForPush(toDbId, toKey);
+      if (pushUserId) {
+        await sendIncomingCallPushIfOffer(pushUserId, {
+          fromUserId,
+          fromUserDbId: socket.userId ?? null,
+          callId,
+          signal,
+        });
+      }
       socket.emit("call_failed", { reason: "offline", toUserId: toKey });
+      socket.emit("call_routed", { ok: false, route: "phone_map_offline", toUserId: toKey });
       return;
     }
     io.to(receiverSocket).emit("incoming_call", {
@@ -162,6 +189,7 @@ io.on("connection", async (socket) => {
       signal,
       callId,
     });
+    socket.emit("call_routed", { ok: true, route: "phone_map", toUserId: toKey });
   });
 
   socket.on("answer_call", ({ toUserId, toUserDbId, signal }) => {
