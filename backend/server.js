@@ -24,6 +24,7 @@ import adminRoutes from "./modules/admin/adminRoutes.js";
 import { setSocketIo } from "./socket/ioInstance.js";
 import { attachChatSocket } from "./socket/chatSocket.js";
 import * as callBilling from "./modules/calls/callBillingService.js";
+import { normalizePhoneE164 } from "./modules/auth/authService.js";
 
 dotenv.config();
 const app = express();
@@ -95,7 +96,8 @@ io.on("connection", async (socket) => {
     try {
       const u = await prisma.user.findUnique({ where: { id: socket.userId } });
       if (u) {
-        const phone = u.phone || `+256${u.subscriberId}`;
+        const rawPhone = u.phone || `+256${u.subscriberId}`;
+        const phone = normalizePhoneE164(rawPhone);
         onlineUsers.set(phone, socket.id);
         socket.gtnCallPhone = phone;
       }
@@ -132,22 +134,34 @@ io.on("connection", async (socket) => {
   // Call signaling (WebRTC offer/answer/ICE via simple-peer)
   // callId: DB row from POST /api/calls/start (forwarded so callee can POST /calls/end)
   socket.on("call_user", ({ fromUserId, toUserId, signal, callId }) => {
-    const receiverSocket = onlineUsers.get(toUserId);
+    let toKey = toUserId;
+    try {
+      toKey = normalizePhoneE164(toUserId);
+    } catch {
+      /* keep raw */
+    }
+    const receiverSocket = onlineUsers.get(toKey);
     if (!receiverSocket) {
-      socket.emit("call_failed", { reason: "offline", toUserId });
+      socket.emit("call_failed", { reason: "offline", toUserId: toKey });
       return;
     }
     io.to(receiverSocket).emit("incoming_call", { fromUserId, signal, callId });
   });
 
   socket.on("answer_call", ({ toUserId, signal }) => {
-    const callerSocket = onlineUsers.get(toUserId);
+    let toKey = toUserId;
+    try {
+      toKey = normalizePhoneE164(toUserId);
+    } catch {
+      /* keep raw */
+    }
+    const callerSocket = onlineUsers.get(toKey);
     if (callerSocket) io.to(callerSocket).emit("call_answered", signal);
 
     // Persist answered status for missed-call history.
     // Assumption: Socket `register` stores `userId` keys as E.164 phone strings.
     const receiverPhone = getPhoneBySocketId();
-    const callerPhone = toUserId;
+    const callerPhone = toKey;
     if (callerPhone && receiverPhone) {
       prisma.call
         .findFirst({
@@ -170,12 +184,24 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("end_call", ({ toUserId }) => {
-    const receiverSocket = onlineUsers.get(toUserId);
+    let toKey = toUserId;
+    try {
+      toKey = normalizePhoneE164(toUserId);
+    } catch {
+      /* keep raw */
+    }
+    const receiverSocket = onlineUsers.get(toKey);
     if (receiverSocket) io.to(receiverSocket).emit("call_ended");
   });
 
   socket.on("reject_call", ({ toUserId }) => {
-    const callerSocket = onlineUsers.get(toUserId);
+    let toKey = toUserId;
+    try {
+      toKey = normalizePhoneE164(toUserId);
+    } catch {
+      /* keep raw */
+    }
+    const callerSocket = onlineUsers.get(toKey);
     if (callerSocket) io.to(callerSocket).emit("call_rejected");
   });
 
